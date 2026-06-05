@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	spiderVersion  = "3.0.1"
+	spiderVersion  = "3.1.0"
 	spiderLang     = "go"
 	serverDomain  = "http://192.168.0.111:8280"
 )
@@ -188,6 +188,9 @@ func (s *Server) Start() error {
 
 	// Auto-login pure-API platforms on startup
 	go s.autoLoginPureAPIPlatforms()
+
+	// Periodic token renewal every 30 minutes for pure-API platforms
+	go s.periodicRenewLoop()
 
 	return http.ListenAndServe(addr, mux)
 }
@@ -585,6 +588,116 @@ func flattenCookieDict(dict map[string]interface{}) map[string]interface{} {
 	return result
 }
 
+// autoRenewCredentials checks and renews login credentials for pure-API platforms
+func (s *Server) autoRenewCredentials(platforms []string) {
+	lc := cache.GetCache("login_cache.json")
+	
+	// Fetch credentials from Backend API
+	creds := s.fetchBackendCredentials()
+	
+	for _, code := range platforms {
+		c, ok := creds[code]
+		if !ok || c.username == "" {
+			continue // No auto-login credentials for this platform
+		}
+		
+		entry := lc.Get(code)
+		if entry != nil {
+			remaining := entry.TTL - (time.Now().Unix() - entry.CachedAt)
+			if remaining > 1800 { // more than 30min remaining
+				continue
+			}
+			log.Printf("🔄 [%s] Cache expiring soon (%dmin remaining), auto-renewing...", code, remaining/60)
+		} else {
+			log.Printf("🔄 [%s] Cache expired, auto-renewing...", code)
+		}
+		
+		// Only auto-login for pure-API platforms (no browser/captcha required)
+		var cookieDict map[string]string
+		var err error
+		switch code {
+		case "yyg":
+			client := yyg.NewYYGClient("")
+			cookieDict, err = client.Login(c.username, c.password)
+		case "jyjt":
+			client := jyjt.NewJYJTClient(nil)
+			cookieDict, err = client.Login(c.username, c.password)
+		case "dek":
+			client := dek.NewDEKClient(nil)
+			cookieDict, err = client.Login(c.username, c.password)
+		default:
+			log.Printf("⚠️ [%s] No pure-API login, needs browser/captcha, skipping auto-renew", code)
+			continue
+		}
+		
+		if err != nil {
+			log.Printf("❌ [%s] Auto-renew failed: %v", code, err)
+			continue
+		}
+		
+		// Update cache
+		cacheMap := make(map[string]interface{})
+		for k, v := range cookieDict {
+			cacheMap[k] = v
+		}
+		lc.Set(code, cacheMap, "", c.username)
+		s.mu.Lock()
+		if s.loginCache == nil {
+			s.loginCache = make(map[string]map[string]interface{})
+		}
+		s.loginCache[code] = cacheMap
+		s.mu.Unlock()
+		log.Printf("✅ [%s] Auto-renew success!", code)
+	}
+}
+// periodicRenewLoop runs token renewal every N minutes for pure-API platforms
+func (s *Server) periodicRenewLoop() {
+	time.Sleep(20 * time.Minute) // First renewal after 20 min
+
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		log.Printf("🔄 [periodic-renew] Starting periodic token renewal...")
+		s.mu.Lock()
+		platformList := make([]string, 0)
+		for code := range s.loginCache {
+			platformList = append(platformList, code)
+		}
+		s.mu.Unlock()
+		s.autoRenewCredentials(platformList)
+	}
+}
+
+// fetchBackendCredentials gets platform credentials from Backend API
+func (s *Server) fetchBackendCredentials() map[string]struct{ username, password string } {
+	result := make(map[string]struct{ username, password string })
+	
+	resp, err := http.Get(s.serverDomain + "/api/v1/spider/credentials/?token=af87045b45404b12851816cd4f6a3903")
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch credentials from Backend: %v", err)
+		return result
+	}
+	defer resp.Body.Close()
+	
+	var respData struct {
+		Data map[string]struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+		log.Printf("⚠️ Failed to decode credentials: %v", err)
+		return result
+	}
+	
+	for code, cred := range respData.Data {
+		result[code] = struct{ username, password string }{cred.Username, cred.Password}
+	}
+	log.Printf("📋 Fetched credentials for %d platforms from Backend", len(result))
+	return result
+}
+
 // fetchPlatformCredentials tries to get platform credentials from login cache
 func (s *Server) fetchPlatformCredentials(platformCode string) (string, map[string]interface{}) {
 	s.cacheOnce.Do(func() {
@@ -756,6 +869,13 @@ func (s *Server) runCrawl(task *CrawlTask, hasTraceCode bool) {
 		s.mu.Unlock()
 		log.Printf("🏁 Crawl plan %d completed (duration: %s)", task.PlanID, time.Since(task.StartTime).Round(time.Second))
 	}()
+
+	// Auto-renew credentials for pure-API platforms before crawling
+	platformList := make([]string, 0, len(task.PlatformMap))
+	for code := range task.PlatformMap {
+		platformList = append(platformList, code)
+	}
+	s.autoRenewCredentials(platformList)
 
 	// Launch each platform as a goroutine
 	if len(task.PlatformMap) == 0 {
