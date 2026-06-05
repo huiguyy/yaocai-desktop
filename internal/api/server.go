@@ -487,6 +487,14 @@ func (s *Server) normalizePlatformConfigs(req *ApplyAllSpiderRequest) map[string
 		}
 	}
 
+	// Fallback: if no platforms specified at all, use all platforms from login_cache
+	if len(result) == 0 {
+		for _, key := range platformKeys {
+			result[key] = &PlatformConfig{Enabled: true}
+		}
+		log.Printf("📋 No platforms in request, using all %d available platforms", len(result))
+	}
+
 	// Parse cookie strings into cookie_dict for each platform
 	for key, cfg := range result {
 		s.parsePlatformCookie(key, cfg)
@@ -1424,6 +1432,18 @@ func (s *Server) handlePlatformLogin(w http.ResponseWriter, r *http.Request) {
 		cookieDict, err = client.Login(req.Username, req.Password)
 	case "jyjt":
 		client := jyjt.NewJYJTClient(nil)
+		cookieDict, err = client.Login(req.Username, req.Password)
+	case "xmyy":
+		client := xmyy.NewXMYYClient("")
+		cookieDict, err = client.Login(req.Username, req.Password)
+	case "yjj":
+		client := yjj.NewYJJClient("", "", "")
+		cookieDict, err = client.Login(req.Username, req.Password)
+	case "ysb":
+		client := ysb.NewYSBClient()
+		cookieDict, err = client.Login(req.Username, req.Password)
+	case "yyc":
+		client := yyc.NewYYCClient(nil)
 		cookieDict, err = client.Login(req.Username, req.Password)
 	default:
 		jsonResp(w, http.StatusOK, map[string]interface{}{

@@ -620,7 +620,7 @@ func (c *YSBClient) Code() string { return "ysb" }
 
 // Login placeholder — requires browser automation, not yet implemented
 func (c *YSBClient) Login(username, password string) (map[string]string, error) {
-	return nil, fmt.Errorf("YSB login requires browser automation (not yet implemented in Go)")
+	return c.LoginViaBrowser(username, password)
 }
 
 // SetToken sets the auth token

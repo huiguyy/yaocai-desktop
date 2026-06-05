@@ -75,7 +75,7 @@ func (c *YYCClient) Name() string { return "1药城" }
 func (c *YYCClient) Code() string { return "yyc" }
 
 func (c *YYCClient) Login(username, password string) (map[string]string, error) {
-	return nil, fmt.Errorf("YYC login requires browser automation")
+	return c.LoginViaBrowser(username, password)
 }
 
 func (c *YYCClient) SetToken(token string) { c.token = token }

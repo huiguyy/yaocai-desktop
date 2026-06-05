@@ -379,7 +379,7 @@ func (c *YJJClient) Code() string { return "yjj" }
 
 // Login placeholder — requires browser automation
 func (c *YJJClient) Login(username, password string) (map[string]string, error) {
-	return nil, fmt.Errorf("YJJ login requires browser automation (not yet implemented in Go)")
+	return c.LoginViaBrowser(username, password)
 }
 
 func (c *YJJClient) SetToken(token string) {

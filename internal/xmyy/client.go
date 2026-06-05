@@ -39,7 +39,7 @@ func (c *XMYYClient) Name() string { return "熊猫药药" }
 func (c *XMYYClient) Code() string { return "xmyy" }
 
 func (c *XMYYClient) Login(username, password string) (map[string]string, error) {
-	return nil, fmt.Errorf("XMYY login requires browser automation")
+	return c.LoginViaBrowser(username, password)
 }
 
 func (c *XMYYClient) SetToken(token string) { c.token = token }
