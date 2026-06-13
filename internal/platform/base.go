@@ -28,6 +28,8 @@ type DrugResult struct {
 	MinBuyNum      int      `json:"min_buy_num"`
 	Unit           string   `json:"unit"`
 	DrugID         int      `json:"drug_id"`
+	Inventory      int      `json:"inventory,omitempty"`
+	CanSaleNum     int      `json:"can_sale_num,omitempty"`
 }
 
 // CrawlResult holds the result of a full crawl operation

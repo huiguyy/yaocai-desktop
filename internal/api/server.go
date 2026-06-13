@@ -121,8 +121,9 @@ type CrawlPlatformResult struct {
 // Server is the HTTP API server compatible with Python Spider
 type Server struct {
 	Port         int
-	serverDomain string // Backend URL
-	backendToken string // token for Backend API
+	serverDomain   string // Backend URL
+	backendToken   string // token for Backend API
+	fileServerURL string // AI server local file server for result uploads
 	mu           sync.Mutex
 	runningPlan  int            // currently running plan_id (0 = idle)
 	task         *CrawlTask
@@ -133,8 +134,9 @@ type Server struct {
 // NewServer creates a new API server
 func NewServer(port int) *Server {
 	return &Server{
-		Port:         port,
-		serverDomain: serverDomain,
+		Port:          port,
+		serverDomain:  serverDomain,
+		fileServerURL: "http://192.168.0.111:8290",
 	}
 }
 
@@ -1147,6 +1149,9 @@ func (s *Server) assembleCrawlResults(task *CrawlTask) map[string]interface{} {
 						"最低购买量": item.MinBuyNum,
 						"单位":    item.Unit,
 						"药品ID":  item.DrugID,
+					"库存":    item.Inventory,
+					"可售数":   item.CanSaleNum,
+					"效期":    item.ValidDate,
 					}
 					if len(item.Tags) > 0 {
 						drugMap["标签"] = item.Tags
@@ -1231,7 +1236,7 @@ func (s *Server) assembleAndCallback(task *CrawlTask) {
 	mergedData := s.assembleCrawlResults(task)
 
 	// Write result to log file (compatible with Python Spider)
-	resultDir := "./logs/result_out"
+	resultDir := filepath.Join(filepath.Dir(os.Args[0]), "..", "logs", "result_out")
 	os.MkdirAll(resultDir, 0755)
 	resultFile := filepath.Join(resultDir, fmt.Sprintf("%d_result_out.log", task.PlanID))
 	if data, err := json.MarshalIndent(mergedData, "", "  "); err == nil {
@@ -1312,80 +1317,38 @@ func (s *Server) assembleAndCallback(task *CrawlTask) {
 	log.Printf("❌ All callback attempts failed for plan %d", task.PlanID)
 }
 
-// uploadResultFile compresses and uploads a result file via Backend COS API
-func (s *Server) uploadResultFile(filePath string, planID int, token string) (uploadURL, key string, err error) {
-	// Gzip compress
-	gzPath := filePath + ".gz"
-	if err = compressFile(filePath, gzPath); err != nil {
-		return "", "", fmt.Errorf("gzip compress failed: %w", err)
+// uploadResultFile uploads result file to AI server local file server (no COS)
+func (s *Server) uploadResultFile(filePath string, planID int, token string) (resultURL, key string, err error) {
+	// Read the result file
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", "", fmt.Errorf("open result file failed: %w", err)
 	}
-	defer os.Remove(gzPath)
+	defer f.Close()
+	fi, _ := f.Stat()
 
-	// Get upload URL from Backend
-	uploadAPI := s.serverDomain + "/api/v1/cos/upload_url/"
-	payload := map[string]interface{}{
-		"file_type":          20,
-		"name":               fmt.Sprintf("%d_result_out.log.gz", planID),
-		"fixed_file_name":    true,
-	}
-
-	body, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", uploadAPI, bytes.NewReader(body))
+	// Upload to AI server local file server via HTTP PUT
+	uploadURL := s.fileServerURL + "/" + fmt.Sprintf("%d_result_out.json", planID)
+	req, _ := http.NewRequest("PUT", uploadURL, f)
 	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Token", token)
-	}
+	req.ContentLength = fi.Size()
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("get upload URL failed: %w", err)
+		return "", "", fmt.Errorf("upload to file server failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
-	var respJSON map[string]interface{}
-	if err := json.Unmarshal(respBody, &respJSON); err != nil {
-		return "", "", fmt.Errorf("parse upload response failed: %w", err)
-	}
-	if respJSON["code"] != float64(100) && respJSON["code"] != "100" {
-		return "", "", fmt.Errorf("upload API returned code=%v", respJSON["code"])
+	if resp.StatusCode != 200 && resp.StatusCode != 201 && resp.StatusCode != 204 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", "", fmt.Errorf("upload returned %d: %s", resp.StatusCode, string(respBody[:min(len(respBody), 200)]))
 	}
 
-	data, ok := respJSON["data"].(map[string]interface{})
-	if !ok {
-		return "", "", fmt.Errorf("upload API data field missing")
-	}
-
-	presignedURL, _ := data["upload_url"].(string)
-	fileKey, _ := data["key"].(string)
-	if presignedURL == "" {
-		return "", "", fmt.Errorf("upload_url is empty")
-	}
-
-	// Upload file to COS
-	f, err := os.Open(gzPath)
-	if err != nil {
-		return "", "", fmt.Errorf("open gz file failed: %w", err)
-	}
-	defer f.Close()
-
-	putReq, _ := http.NewRequest("PUT", presignedURL, f)
-	putReq.Header.Set("Content-Type", "application/json")
-	putResp, err := client.Do(putReq)
-	if err != nil {
-		return "", "", fmt.Errorf("PUT to COS failed: %w", err)
-	}
-	defer putResp.Body.Close()
-
-	if putResp.StatusCode != 200 {
-		return "", "", fmt.Errorf("PUT to COS returned %d", putResp.StatusCode)
-	}
-
-	// Clean up local file
-	os.Remove(filePath)
-
-	return presignedURL, fileKey, nil
+	resultURL = uploadURL
+	key = uploadURL // Use the full URL as the key (Backend will download from this URL)
+	log.Printf("📁 Uploaded result to local file server: %s (%d bytes)", uploadURL, fi.Size())
+	return resultURL, key, nil
 }
 
 func (s *Server) handleSelfUpdate(w http.ResponseWriter, req ApplyAllSpiderRequest) {

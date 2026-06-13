@@ -335,6 +335,9 @@ func (c *YYCClient) SearchDrugs(sku platform.DrugSKU, hasTraceCode bool) (*platf
 				StoreID:   int(toFloat(d["vendorId"])),
 				StoreName: toString(d["vendorName"]),
 				DrugID:    int(toFloat(d["productId"])),
+				Inventory:  int(toFloat(d["inventory"])),
+				CanSaleNum: int(toFloat(d["canSaleNum"])),
+				ValidDate:  toString(d["validDate"]),
 			})
 		}
 	}

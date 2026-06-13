@@ -355,7 +355,10 @@ func (c *JYJTClient) SearchDrugs(sku platform.DrugSKU, hasTraceCode bool) (*plat
 				StoreID:   storeID,
 				StoreName: storeName,
 				DrugID:    drugID,
-				MinBuyNum: minBuyNum,
+				MinBuyNum:  minBuyNum,
+				Inventory:  int(toFloat(d["inventory"])),
+				CanSaleNum: int(toFloat(d["canSaleNum"])),
+				ValidDate:  toString(d["validDate"]),
 			})
 		}
 

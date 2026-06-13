@@ -453,6 +453,8 @@ func (c *YJJClient) SearchDrugs(sku platform.DrugSKU, hasTraceCode bool) (*platf
 			ValidDate:    item.ItemValidTime,
 			ImageURL:     imageURL,
 			DrugID:       numInt(item.ItemStoreID),
+			Inventory:      numInt(item.ItemStorage),
+			CanSaleNum:     numInt(item.CanSaleNum),
 			MinBuyNum:    numInt(item.MinBuyNum),
 			Unit:         item.ItemPackageunit,
 			HasTraceCode: numInt(item.TrackingCode) > 0,

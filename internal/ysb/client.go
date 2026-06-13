@@ -710,6 +710,9 @@ func (c *YSBClient) SearchDrugs(sku platform.DrugSKU, hasTraceCode bool) (*platf
 				Unit:         toString(d["unit"]),
 				Price:        toFloat64(d["price"]),
 				HasTraceCode: toBool(d["hasTraceCode"]),
+				Inventory:    int(toFloat64(d["inventory"])),
+				CanSaleNum:   int(toFloat64(d["canSaleNum"])),
+				ValidDate:    toString(d["validDate"]),
 			}
 
 			// Fallback field names

@@ -349,6 +349,8 @@ func (c *YBMClient) productSearch(body map[string]interface{}, sku platform.Drug
 			MinBuyNum:  minBuyNum,
 			Unit:       toString(good["productUnit"]),
 			HasTraceCode: false,
+			Inventory:    int(toFloat64(good["inventory"])),
+			CanSaleNum:   int(toFloat64(good["canSaleNum"])),
 			Tags:       tags,
 		})
 	}

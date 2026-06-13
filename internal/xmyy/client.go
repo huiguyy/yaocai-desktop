@@ -202,6 +202,9 @@ func (c *XMYYClient) SearchDrugs(sku platform.DrugSKU, hasTraceCode bool) (*plat
 			StoreName: "熊猫药药",
 			DrugID:    int(toFloat(d["goodsId"])),
 			MinBuyNum: int(toFloat(d["packageNum"])),
+			Inventory:  int(toFloat(d["stockNum"])),
+			CanSaleNum: int(toFloat(d["canSaleNum"])),
+			ValidDate:  toString(d["validDate"]),
 		})
 	}
 
